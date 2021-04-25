@@ -447,5 +447,8 @@ $RECYCLE.BIN/
 !.vscode/launch.json
 !.vscode/extensions.json
 
-# Enviroments
+# Dot Enviroment
 .env
+
+# Generated IoT Edge Deployment Maniftest
+config/

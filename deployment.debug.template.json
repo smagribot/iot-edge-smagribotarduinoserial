@@ -56,19 +56,28 @@
             "type": "docker",
             "status": "running",
             "restartPolicy": "always",
+            "env": {
+              "SerialPortName": {
+                "value": "/dev/ttyUSB0"
+              },
+              "SerialBaudRate": {
+                "value": "9600"
+              }
+            },
             "settings": {
               "image": "${MODULES.IoTEdgeSmagribotArduinoSerial.debug}",
-              "createOptions": {}
-            }
-          },
-          "SimulatedTemperatureSensor": {
-            "version": "1.0",
-            "type": "docker",
-            "status": "running",
-            "restartPolicy": "always",
-            "settings": {
-              "image": "mcr.microsoft.com/azureiotedge-simulated-temperature-sensor:1.0",
-              "createOptions": {}
+              "createOptions": {
+                "HostConfig": {
+                  "Privileged": true,
+                  "Devices": [
+                    {
+                      "PathOnHost": "/dev/ttyUSB0",
+                      "PathInContainer": "/dev/ttyUSB0",
+                      "CgroupPermissions": "rwm"
+                    }
+                  ]
+                }
+              }
             }
           }
         }
@@ -78,11 +87,17 @@
       "properties.desired": {
         "schemaVersion": "1.0",
         "routes": {
-          "IoTEdgeSmagribotArduinoSerialToIoTHub": "FROM /messages/modules/IoTEdgeSmagribotArduinoSerial/outputs/* INTO $upstream",
-          "sensorToIoTEdgeSmagribotArduinoSerial": "FROM /messages/modules/SimulatedTemperatureSensor/outputs/temperatureOutput INTO BrokeredEndpoint(\"/modules/IoTEdgeSmagribotArduinoSerial/inputs/input1\")"
+          "IoTEdgeSmagribotArduinoSerialToIoTHub": "FROM /messages/modules/IoTEdgeSmagribotArduinoSerial/outputs/* INTO $upstream"
         },
         "storeAndForwardConfiguration": {
           "timeToLiveSecs": 7200
+        }
+      }
+    },
+    "IoTEdgeSmagribotArduinoSerial": {
+      "properties.desired": {
+        "TelemetryConfig": {
+          "PublishInterval": 900
         }
       }
     }

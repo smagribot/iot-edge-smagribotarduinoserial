@@ -1,92 +1,136 @@
+using System;
+using System.Runtime.Loader;
+using System.Threading;
+using System.Threading.Tasks;
+using Autofac;
+using IoTEdgeSmagribotArduinoSerial.Services.Cloud;
+using IoTEdgeSmagribotArduinoSerial.Services.Device;
+using IoTEdgeSmagribotArduinoSerial.Services.DeviceCommunication;
+using IoTEdgeSmagribotArduinoSerial.Services.Parser;
+using IoTEdgeSmagribotArduinoSerial.Services.Scheduler;
+using Microsoft.Extensions.Logging;
+
 namespace IoTEdgeSmagribotArduinoSerial
 {
-    using System;
-    using System.IO;
-    using System.Runtime.InteropServices;
-    using System.Runtime.Loader;
-    using System.Security.Cryptography.X509Certificates;
-    using System.Text;
-    using System.Threading;
-    using System.Threading.Tasks;
-    using Microsoft.Azure.Devices.Client;
-    using Microsoft.Azure.Devices.Client.Transport.Mqtt;
-
-    class Program
+    internal class Program
     {
-        static int counter;
+        public static IContainer Container { get; set; }
 
-        static void Main(string[] args)
+        private static void Main(string[] args)
         {
-            Init().Wait();
+            Console.WriteLine("                                                                                           \n" +
+                              "                                                          ,,   ,,                          \n" +
+                              " .M\"\"\"bgd                                                 db  *MM                    mm    \n" +
+                              ",MI    \"Y                                                      MM                    MM    \n" +
+                              "`MMb.     `7MMpMMMb.pMMMb.   ,6\"Yb.   .P\"Ybmmm `7Mb,od8 `7MM   MM,dMMb.   ,pW\"Wq.  mmMMmm  \n" +
+                              "  `YMMNq.   MM    MM    MM  8)   MM  :MI  I8     MM' \"'   MM   MM    `Mb 6W'   `Wb   MM    \n" +
+                              ".     `MM   MM    MM    MM   ,pm9MM   WmmmP\"     MM       MM   MM     M8 8M     M8   MM    \n" +
+                              "Mb     dM   MM    MM    MM  8M   MM  8M          MM       MM   MM.   ,M9 YA.   ,A9   MM    \n" +
+                              "P\"Ybmmd\"  .JMML  JMML  JMML.`Moo9^Yo. YMMMMMb  .JMML.   .JMML. P^YbmdP'   `Ybmd9'    `Mbmo \n" +
+                              "                                     6'     dP                                             \n" +
+                              "                                     Ybmmmd'                                                ");
+            Console.WriteLine("Smagribot 🌱 Azure IoT Edge Arduino Serial Module");
+            Console.WriteLine($"Version: {typeof(Program).Assembly.GetName().Version}");
 
+            SetupIoC();
+
+            var runner = Container.Resolve<Runner>();
+            runner.Run();
+            
             // Wait until the app unloads or is cancelled
             var cts = new CancellationTokenSource();
             AssemblyLoadContext.Default.Unloading += (ctx) => cts.Cancel();
             Console.CancelKeyPress += (sender, cpe) => cts.Cancel();
             WhenCancelled(cts.Token).Wait();
+            runner.Dispose();
         }
 
         /// <summary>
         /// Handles cleanup operations when app is cancelled or unloads
         /// </summary>
-        public static Task WhenCancelled(CancellationToken cancellationToken)
+        private static Task WhenCancelled(CancellationToken cancellationToken)
         {
             var tcs = new TaskCompletionSource<bool>();
             cancellationToken.Register(s => ((TaskCompletionSource<bool>)s).SetResult(true), tcs);
             return tcs.Task;
         }
 
-        /// <summary>
-        /// Initializes the ModuleClient and sets up the callback to receive
-        /// messages containing temperature information
-        /// </summary>
-        static async Task Init()
+        private static void SetupIoC()
         {
-            MqttTransportSettings mqttSetting = new MqttTransportSettings(TransportType.Mqtt_Tcp_Only);
-            ITransportSettings[] settings = { mqttSetting };
+            var builder = new ContainerBuilder();
 
-            // Open a connection to the Edge runtime
-            ModuleClient ioTHubModuleClient = await ModuleClient.CreateFromEnvironmentAsync(settings);
-            await ioTHubModuleClient.OpenAsync();
-            Console.WriteLine("IoT Hub module client initialized.");
-
-            // Register callback to be called when a message is received by the module
-            await ioTHubModuleClient.SetInputMessageHandlerAsync("input1", PipeMessage, ioTHubModuleClient);
-        }
-
-        /// <summary>
-        /// This method is called whenever the module is sent a message from the EdgeHub. 
-        /// It just pipe the messages without any change.
-        /// It prints all the incoming messages.
-        /// </summary>
-        static async Task<MessageResponse> PipeMessage(Message message, object userContext)
-        {
-            int counterValue = Interlocked.Increment(ref counter);
-
-            var moduleClient = userContext as ModuleClient;
-            if (moduleClient == null)
+            var loggerFactory = LoggerFactory.Create(loggerBuilder =>
             {
-                throw new InvalidOperationException("UserContext doesn't contain " + "expected values");
-            }
+                var logLevelEnv = Environment.GetEnvironmentVariable("LogLevel");
 
-            byte[] messageBytes = message.GetBytes();
-            string messageString = Encoding.UTF8.GetString(messageBytes);
-            Console.WriteLine($"Received message: {counterValue}, Body: [{messageString}]");
-
-            if (!string.IsNullOrEmpty(messageString))
-            {
-                using (var pipeMessage = new Message(messageBytes))
+#if DEBUG
+                var defaultLogLevel = LogLevel.Debug;
+#else
+                var defaultLogLevel = LogLevel.Information;
+#endif
+                switch (logLevelEnv?.ToLower())
                 {
-                    foreach (var prop in message.Properties)
-                    {
-                        pipeMessage.Properties.Add(prop.Key, prop.Value);
-                    }
-                    await moduleClient.SendEventAsync("output1", pipeMessage);
-                
-                    Console.WriteLine("Received message sent");
+                    case "none":
+                        defaultLogLevel = LogLevel.None;
+                        break;
+                    case "debug":
+                        defaultLogLevel = LogLevel.Debug;
+                        break;
+                    case "information":
+                        defaultLogLevel = LogLevel.Information;
+                        break;
                 }
+
+                loggerBuilder
+                    .SetMinimumLevel(defaultLogLevel)
+                    .AddSimpleConsole(c =>
+                    {
+                        c.IncludeScopes = true;
+                        c.SingleLine = true;
+                        c.TimestampFormat = "[yyyy-MM-ddTHH:mm:ssZ] ";
+                        c.UseUtcTimestamp = true;
+                    })
+                    .AddDebug();
+            });
+
+            var logger = loggerFactory.CreateLogger("Arduino Serial Module");
+            builder.RegisterInstance(logger)
+                .As<ILogger>()
+                .SingleInstance();
+
+            builder.RegisterType<SchedulerProvider>()
+                .As<ISchedulerProvider>()
+                .SingleInstance();
+
+            var serialPortName = Environment.GetEnvironmentVariable("SerialPortName");
+            if (serialPortName == null)
+            {
+                logger.LogWarning("No \"SerialPortName\" defined in enviroment variables! Settings default");
+                serialPortName = "/dev/ttyACM0";
             }
-            return MessageResponse.Completed;
+            var serialBaudRate = int.Parse(Environment.GetEnvironmentVariable("SerialBaudRate") ?? "9600");
+            builder.RegisterType<SerialCommunicationService>()
+                .WithParameter("portName", serialPortName)
+                .WithParameter("baudRate", serialBaudRate)
+                .As<ICommunicationService>()
+                .SingleInstance();
+
+            builder.RegisterType<AzureIoTEdgeService>()
+                .As<ICloudService>()
+                .SingleInstance();
+
+            builder.RegisterType<SmagriBotDevice>()
+                .As<IDeviceService>()
+                .SingleInstance();
+
+            builder.RegisterType<SerialDeviceResultParser>()
+                .As<IDeviceResultParser>()
+                .SingleInstance();
+
+            builder.RegisterType<Runner>()
+                .SingleInstance();
+
+            Container = builder.Build();
         }
     }
 }
