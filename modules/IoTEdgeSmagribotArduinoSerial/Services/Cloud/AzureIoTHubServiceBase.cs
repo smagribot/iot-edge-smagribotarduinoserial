@@ -41,7 +41,7 @@ namespace IoTEdgeSmagribotArduinoSerial.Services.Cloud
                 ContentType = "application/json", 
                 ContentEncoding = "utf-8",
             };
-            message.Properties.Add("content-type", "application/edge-samgribotarduinoserial-json");
+            message.Properties.Add("content-type", "application/edge-smagribotarduinoserial-json");
             return SendMessage(message);
         }
         
